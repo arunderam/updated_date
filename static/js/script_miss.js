@@ -10,7 +10,7 @@ function getParam(name) {
     try {
       const res = await fetch(`/api/missing-intervals?device_id=${encodeURIComponent(device_id)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
       const data = await res.json();
-      console.log("API ➜", data);
+      // console.log("API ➜", data);
     
       if (data.message === "No records found") {
         result.innerHTML = `<p style="color:red;">❌ ${data.message}</p>`;

@@ -10,6 +10,7 @@ document.getElementById("batteryForm").addEventListener("submit", async function
   try {
     const response = await fetch(`/api/battery-status?device_id=${encodeURIComponent(deviceId)}`);
     const data = await response.json();
+    console.log("API Response:", data);
 
     if (!response.ok) {
       resultDiv.innerHTML = `<p style="color:red;">Error: ${data.detail}</p>`;
@@ -30,7 +31,8 @@ document.getElementById("batteryForm").addEventListener("submit", async function
             </p>
           </div>
           <div>
-            <p><strong>Voltage:</strong> ${data.voltage}</p>
+            <p><strong>Voltage:</strong> ${data.battery_voltage ? data.battery_voltage + "V" : "N/A"}</p>
+
             <p><strong>Battery On:</strong> 
               <span style="color: ${data.power_on ? '#28a745' : '#dc3545'}; font-weight: bold;">
                 ${data.power_on ? 'Yes' : 'No'}
@@ -39,17 +41,20 @@ document.getElementById("batteryForm").addEventListener("submit", async function
           </div>
         </div>
         <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
-          <p><strong>Last Update:</strong> ${data.last_update ? new Date(data.last_update).toLocaleString() : 'N/A'}</p>
+        <p><strong>Last Update:</strong> ${data.last_data_send_time ? new Date(data.last_data_send_time).toLocaleString() : 'N/A'}</p>
+
         </div>
         
         <!-- Battery visual indicator -->
         <div style="margin-top: 20px;">
           <p><strong>Battery Level Indicator:</strong></p>
           <div style="width: 100%; height: 30px; border: 2px solid #333; border-radius: 5px; position: relative; background-color: #f0f0f0;">
-            <div style="height: 100%; background-color: ${data.status_color}; border-radius: 3px; width: ${getBatteryPercentage(data.voltage)}%; transition: width 0.3s ease;"></div>
-            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: bold; color: #333;">
-              ${data.voltage}
-            </div>
+            <div style="height: 100%; background-color: ${data.status_color}; border-radius: 3px; width: ${getBatteryPercentage(data.battery_voltage)}%; transition: width 0.3s ease;"></div>
+<div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: bold; color: #333;">
+  ${data.battery_voltage}V
+</div>
+
+
           </div>
           <div style="display: flex; justify-content: space-between; font-size: 0.8em; margin-top: 5px; color: #666;">
             <span>3.0V (Critical)</span>
@@ -67,14 +72,15 @@ document.getElementById("batteryForm").addEventListener("submit", async function
   }
 });
 
-function getBatteryPercentage(voltageStr) {
-  // Extract numeric value from voltage string (e.g., "3.75V" -> 3.75)
-  const voltage = parseFloat(voltageStr);
-  if (isNaN(voltage) || voltage <= 0) return 0;
+function getBatteryPercentage(voltage) {
+  if (!voltage || isNaN(voltage)) return 0;
   
-  // Convert voltage to percentage (3.0V = 0%, 4.2V = 100%)
+  // If value looks like millivolts (e.g., 479), convert to volts
+  if (voltage > 50) voltage = voltage / 100;
+
   const minVoltage = 3.0;
   const maxVoltage = 4.2;
   const percentage = Math.max(0, Math.min(100, ((voltage - minVoltage) / (maxVoltage - minVoltage)) * 100));
   return Math.round(percentage);
 }
+

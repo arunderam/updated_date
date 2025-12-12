@@ -9,15 +9,15 @@
     .data-table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 20px;
+      margin-top: 40px;
       font-size: 14px;
     }
     
     .data-table th,
     .data-table td {
       border: 1px solid #ddd;
-      padding: 8px;
-      text-align: left;
+      padding: 12px;
+      text-align: center;
     }
     
     .data-table th {
@@ -37,7 +37,7 @@
     }
     
     .table-container {
-      max-height: 600px;
+      max-height: 800px;
       overflow-y: auto;
       border: 1px solid #ddd;
       border-radius: 5px;
@@ -120,6 +120,8 @@
         <li><a href="/device-status">Device Status</a></li>
         <li><a href="/all-device-status">All Device Status</a></li>
         <li><a href="/battery-status">Battery Status</a></li>
+        <li><a href="/all-battery-status">All Battery Status</a></li>
+
         <li><a href="/email-scheduler">Email Scheduler</a></li>
 
       </ul>
@@ -129,15 +131,17 @@
       <div class="container">
         <h2>Data Table View</h2>
         
-        <form id="dataTableForm">
+        <form id="dataForm">
           <label for="device_id">Device ID:</label>
           <input type="text" id="device_id" required placeholder="Enter device ID">
           
-          <label for="start_date">Start Date:</label>
-          <input type="datetime-local" id="start_date" required>
+          <label for="start_date">Start Date(YYYY-MM-DD HH:MM):</label>
+          <input type="text" id="start_date" name="start_date" required />
+
           
-          <label for="end_date">End Date:</label>
-          <input type="datetime-local" id="end_date" required>
+          <label for="end_date">End Date(YYYY-MM-DD HH:MM):</label>
+          <input type="text" id="end_date" name="end_date" required />
+
           
           <label for="page_size">Records per page:</label>
           <select id="page_size">
@@ -174,7 +178,7 @@
                   <th>ETM</th>
                   <th>CSM</th>
                   <th>Battery Voltage</th>
-                  <th>Battery Power</th>
+                  <th>Battery Status</th>
                 </tr>
               </thead>
               <tbody id="tableBody">

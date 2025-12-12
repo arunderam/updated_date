@@ -23,10 +23,6 @@ def find_missing_intervals(data, interval_minutes=5):
     # Sort
     df = df.sort_values("ts_floor").reset_index(drop=True)
 
-    # Debug: print what you're actually working with
-    print("⏱️ Floored devicetimes:")
-    print(df["ts_floor"].to_list())
-
     # Build the full expected timeline
     start = df["ts_floor"].min()
     end = df["ts_floor"].max()
@@ -41,6 +37,6 @@ def find_missing_intervals(data, interval_minutes=5):
                 "missing_interval_end":   (t + timedelta(minutes=interval_minutes)).strftime("%Y-%m-%d %H:%M:%S") # noqa
             })
 
-    print("🛑 Missing intervals:")
-    print(missing)
+    # print("🛑 Missing intervals:")
+    # print(missing)
     return missing

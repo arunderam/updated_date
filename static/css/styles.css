@@ -1,3 +1,6 @@
+/* ============================= */
+/*        Global Reset           */
+/* ============================= */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -9,23 +12,24 @@ html, body {
   font-family: Arial, sans-serif;
 }
 
-/* Background setup */
 body {
-  background-image: url('/static/images/aquesa1.jpeg');
+  display: flex;
+  flex-direction: column;
+  /* background-image: url('/static/images/aquesa1.jpeg'); */
   background-size: cover;
   background-repeat: no-repeat;
   background-position: center;
   background-attachment: fixed;
-  display:flex;
-  flex-direction: column;
 }
 
-/* Toolbar */
+/* ============================= */
+/*        Toolbar / Header       */
+/* ============================= */
 .toolbar {
   display: flex;
   align-items: center;
   padding: 10px 20px;
-  background-color: rgba(12, 48, 92, 0.95); /* translucent blue */
+  background-color: rgba(3, 58, 127, 0.95);
   color: white;
   height: 60px;
   width: 100%;
@@ -35,24 +39,26 @@ body {
 .toolbar .logo {
   height: 80px;
   margin-right: 500px;
-
 }
 
-/* Layout container */
+/* ============================= */
+/*        App Layout             */
+/* ============================= */
 .app-container {
   display: flex;
+  width: 100%;
   flex: 1;
-  overflow: hidden;
   height: calc(100% - 60px); /* subtract toolbar height */
+  overflow: hidden;
+  justify-content: space-around;
 }
 
-/* Sidebar */
 .sidebar {
   width: 220px;
-  background-color: rgba(20, 55, 104, 0.95);
+  flex-shrink: 0;
+  background-color: rgba(3, 58, 127, 0.95);
   color: white;
   padding: 20px;
-  flex-shrink: 0;
   overflow-y: auto;
 }
 
@@ -77,99 +83,87 @@ body {
 }
 
 .sidebar ul li a:hover {
-  background-color: #374151;
+  background-color: #12223b;
   color: white;
 }
 
-/* Main content section */
 .main-content {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  background-color: rgba(255, 255, 255, 0.95); /* white with transparency */
+  justify-content: space-around;
   padding: 20px;
+  background-color: rgba(255, 255, 255, 0.95);
+  overflow-y: auto;
 }
 
-/* Description */
-.description {
-  padding: 20px;
-  background-color: rgba(239, 237, 242, 0.95);
-  color: #333;
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  line-height: 1.6;
-  flex-grow: 1;
-}
-
-/* ---------- Main Content Styles (Fetch Data Page) ---------- */
-/* 
-.main-content {
-  padding: 30px;
-  background-color: rgba(255, 255, 255, 0.96);
-  border-radius: 10px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
-  overflow-y: auto;
-} */
-
-/* Container inside main */
+/* ============================= */
+/*       Containers / Boxes      */
+/* ============================= */
 .main-content .container {
-  max-width: 600px;
+  max-width: 100%; /* allow full width for tables */
   margin: 0 auto;
   padding: 25px;
-  background-color: #f8fafc;
+  background-color: #d7e8fa;
   border-radius: 10px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
   display: flex;
   flex-direction: column;
   gap: 15px;
 }
 
-/* Headline */
+.description {
+  padding: 20px;
+  background-color: rgba(134, 147, 170, 0.95);
+  color: #333;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  line-height: 1.6;
+  flex-grow: 1;
+}
+
+/* ============================= */
+/*           Headings            */
+/* ============================= */
 .main-content h2 {
   font-size: 1.6rem;
   margin-bottom: 20px;
   color: #0c305c;
+  display: flex;
 }
 
-/* Form */
-.main-content form#dataForm {
-  max-width: 800px;
-  max-height: 600px;
-
-  margin: 0 auto;
-  padding: 25px;
-  background-color: #f8fafc;
-  border-radius: 10px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+/* ============================= */
+/*            Forms              */
+/* ============================= */
+.main-content form {
   display: flex;
   flex-direction: column;
+  gap: 20px;
 }
-.main-content form {
-  /* display: flex; */
-  flex-direction: column;
-  gap: 12px;
+
+.main-content form#dataForm,
+.main-content form#dupForm {
+  max-width: 800px;
+  max-height: 600px;
+  margin: 0 auto;
+  padding: 25px;
+  background-color: #c3d7ec;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
 }
-.main-content form#dataForm label {
+
+.main-content form label {
   font-weight: 600;
   color: #0c305c;
   margin-bottom: 5px;
-  gap: 1px;
 }
-.main-content form#dataForm input[type="text"] {
+
+.main-content form input[type="text"] {
   padding: 10px;
   font-size: 1rem;
   border: 1px solid #cbd5e0;
   border-radius: 6px;
   outline-color: #0c305c;
-}
-.main-content input[type="text"] {
-  padding: 10px;
-  font-size: 1rem;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  outline-color: #0c305c;
-  gap: 1px;
 }
 
 .main-content button[type="submit"] {
@@ -181,66 +175,123 @@ body {
   font-size: 1rem;
   cursor: pointer;
   transition: background-color 0.2s;
-  gap: 1px;
 }
 
 .main-content button[type="submit"]:hover {
   background-color: #1d4b7f;
-} 
-
-
-/* Duplicate Form */
-.main-content form#dupForm {
-  max-width: 800px;
-  max-height: 600px;
-
-  margin: 0 auto;
-  padding: 25px;
-  background-color: #f8fafc;
-  border-radius: 10px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-  display: flex;
-  flex-direction: column;
 }
 
-.main-content form#dupForm label {
-  font-weight: 600;
-  color: #0c305c;
-  margin-bottom: 5px;
-  gap: 1px;
-}
-
-.main-content form#dupForm input[type="text"] {
-  padding: 10px;
-  font-size: 1rem;
-  border: 1px solid #cbd5e0;
-  border-radius: 6px;
-  outline-color: #0c305c;
-  
-}
-
-.main-content form#dupForm button[type="submit"] {
-  background-color: #0c305c;
-  color: #fff;
-  padding: 12px;
-  border: none;
-  border-radius: 6px;
-  font-size: 1rem;
+/* Clear Cache Button */
+#clearCacheBtn {
+  margin-left: 10px;
+  background-color: #6c757d;
   cursor: pointer;
-  transition: background-color 0.2s ease-in-out;
+  border-radius: 6px;
 }
 
-.main-content form#dupForm button[type="submit"]:hover {
-  background-color: #f0f2f5;
-}
-
-/* Result */
-#result {
+/* ============================= */
+/*        Tables / Status        */
+/* ============================= */
+table {
+  width: 100%;
+  border-collapse: collapse;
   margin-top: 20px;
+  background-color: white;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border-radius: 8px;
+  overflow: hidden;
+  table-layout: fixed;
+  word-wrap: break-word;
+}
+
+table th, table td {
+  padding: 12px 15px;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
   font-size: 0.95rem;
 }
 
-/* Chart Container */
+table th {
+  background: linear-gradient(135deg, #0c305c 0%, #1a4b7a 100%);
+  color: white;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+table tr:nth-child(even) {
+  background-color: #f8f9fa;
+}
+
+table tr:hover {
+  background-color: #e8f4f8;
+  transition: background-color 0.3s ease;
+}
+
+/* Status Table Specific */
+#statusTable {
+  width: 100%;
+  margin-top: 20px;
+  font-size: 0.95em;
+  background-color: #ffffff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  border-radius: 0;
+  overflow-x: auto;
+  display: block;
+}
+
+#statusTable thead {
+  background-color: #0c305c;
+  color: #ffffff;
+}
+
+#statusTable td.status-active {
+  color: #28a745;
+  font-weight: bold;
+}
+
+#statusTable td.status-inactive {
+  color: #ffc107;
+  font-weight: bold;
+}
+
+/* Battery Table */
+#batteryResult table {
+  width: 100%;
+  border-collapse: collapse;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 14px;
+  table-layout: fixed;
+  word-wrap: break-word;
+}
+
+#batteryResult th {
+  background-color: #2c3e50;
+  color: #fff;
+  font-weight: bold;
+}
+
+#batteryResult td:nth-child(3) {
+  font-weight: bold;
+}
+
+/* ============================= */
+/*      Loading / Empty States   */
+/* ============================= */
+.table-loading,
+.table-empty {
+  text-align: center;
+  padding: 40px;
+  font-style: italic;
+}
+
+.table-loading { color: #666; }
+.table-empty { color: #999; }
+
+/* ============================= */
+/*       Chart / Download        */
+/* ============================= */
 #chart-container {
   margin-top: 30px;
   text-align: center;
@@ -255,10 +306,9 @@ body {
 #chartImage {
   max-width: 100%;
   border-radius: 6px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
 }
 
-/* Download buttons */
 #download-buttons {
   display: flex;
   justify-content: center;
@@ -281,7 +331,9 @@ body {
   background-color: #2c5282;
 }
 
-/* Footer */
+/* ============================= */
+/*           Footer              */
+/* ============================= */
 .footer {
   background-color: #e5e7eb;
   padding: 10px;
@@ -290,115 +342,70 @@ body {
   margin-top: 20px;
 }
 
-/* Table Styling */
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 20px;
-  background-color: white;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-table th,
-table td {
-  padding: 12px 15px;
-  text-align: left;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-table th {
-  background: linear-gradient(135deg, #0c305c 0%, #1a4b7a 100%);
-  color: white;
-  font-weight: bold;
-  text-transform: uppercase;
-  font-size: 0.9rem;
-  letter-spacing: 0.5px;
-}
-
-table tr:nth-child(even) {
-  background-color: #f8f9fa;
-}
-
-table tr:hover {
-  background-color: #e8f4f8;
-  transition: background-color 0.3s ease;
-}
-
-table td {
-  font-size: 0.95rem;
-  color: #333;
-}
-
-/* Status Table Specific Styling */
-#statusTable {
-  margin-top: 20px;
-  border: 1px solid #e2e8f0;
-}
-
-#statusTable td:first-child {
-  font-family: 'Courier New', monospace;
-  font-size: 0.85rem;
-  max-width: 250px;
-  word-break: break-all;
-  background-color: #f7fafc;
-}
-
-#statusTable .status-active {
-  color: #28a745;
-  font-weight: bold;
-}
-
-#statusTable .status-inactive {
-  color: #ffc107;
-  font-weight: bold;
-}
-
-/* Loading and Empty States */
-.table-loading {
-  text-align: center;
-  padding: 40px;
-  color: #666;
-  font-style: italic;
-}
-
-.table-empty {
-  text-align: center;
-  padding: 40px;
-  color: #999;
-}
-
-/* Responsive */
+/* ============================= */
+/*          Responsive           */
+/* ============================= */
 @media (max-width: 768px) {
   .app-container {
     flex-direction: column;
-  }
-
-  .sidebar {
-    width: 100%;
-    flex-direction: row;
-    flex-wrap: wrap;
-    justify-content: space-around;
+    height: auto;
   }
 
   .toolbar {
     flex-direction: column;
     align-items: flex-start;
+    height: auto;
+    padding: 12px 15px;
   }
 
-  /* Responsive Table */
-  table {
+  .toolbar .logo {
+    height: 50px;
+    margin-right: 0;
+  }
+
+  .sidebar {
+    width: 100%;
+    flex-direction: column;
+    flex-wrap: wrap;
+    justify-content: space-around;
+  }
+
+  table, #statusTable, #batteryResult table {
     font-size: 0.8rem;
   }
 
-  table th,
-  table td {
+  table th, table td {
     padding: 8px 10px;
   }
 
-  #statusTable td:first-child {
-    font-size: 0.7rem;
-    max-width: 150px;
+  #statusTable thead {
+    display: none;
+  }
+
+  #statusTable, #statusTable tbody, #statusTable tr, #statusTable td {
+    display: block;
+    width: 100%;
+  }
+
+  #statusTable tr {
+    margin-bottom: 15px;
+    border: 1px solid #ddd;
+    padding: 10px;
+  }
+
+  #statusTable td {
+    text-align: right;
+    padding-left: 50%;
+    position: relative;
+  }
+
+  #statusTable td::before {
+    content: attr(data-label);
+    position: absolute;
+    left: 15px;
+    width: 45%;
+    text-align: left;
+    font-weight: bold;
+    color: #0c305c;
   }
 }

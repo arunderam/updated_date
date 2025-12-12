@@ -32,10 +32,10 @@ APP_PORT = int(os.getenv("APP_PORT", "8000"))
 DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
 # Performance Settings
-MONGO_MAX_POOL_SIZE = int(os.getenv("MONGO_MAX_POOL_SIZE", "10"))
-MONGO_MIN_POOL_SIZE = int(os.getenv("MONGO_MIN_POOL_SIZE", "2"))
-THREAD_POOL_WORKERS = int(os.getenv("THREAD_POOL_WORKERS", "4"))
-CHART_DPI = int(os.getenv("CHART_DPI", "200"))
+MONGO_MAX_POOL_SIZE = int(os.getenv("MONGO_MAX_POOL_SIZE", "20"))
+MONGO_MIN_POOL_SIZE = int(os.getenv("MONGO_MIN_POOL_SIZE", "5"))
+THREAD_POOL_WORKERS = int(os.getenv("THREAD_POOL_WORKERS", "10"))
+CHART_DPI = int(os.getenv("CHART_DPI", "100"))
 MAX_RECORDS_LIMIT = int(os.getenv("MAX_RECORDS_LIMIT", "10000"))
 
 # Security Settings

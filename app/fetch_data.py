@@ -23,9 +23,10 @@ def serialize_mongo_doc(doc):
     return doc
 
 
-def get_data_from_mongodb(device_id: str, start_date: str, end_date: str):
+def get_data_from_mongodb(device_id: str, start_date: str, end_date: str, client=None):
     try:
-        client = MongoClient(MONGO_URI, uuidRepresentation="standard")
+        if client is None:
+            client = MongoClient(MONGO_URI, uuidRepresentation="standard")
         db = client[DB_NAME]
         collection = db[COLLECTION_NAME]
 
@@ -45,10 +46,12 @@ def get_data_from_mongodb(device_id: str, start_date: str, end_date: str):
             "deviceid": 1,
             "devicetime": 1,
             "data.evt.etm": 1,
-            "data.evt.csm": 1
+            "data.evt.csm": 1,
+            "data.binfo.bvt": 1,
+            "data.binfo.bpon": 1
         }
 
-        results = list(collection.find(query, projection))
+        results = list(collection.find(query, projection).limit(1000))
         serialized_results = [serialize_mongo_doc(doc) for doc in results]
 
         return {

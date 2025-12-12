@@ -4,12 +4,13 @@ import uuid
 import io
 import json
 import logging
-# from functools import lru_cache
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import time
 import schedule
 import threading
+import smtplib
+from email.message import EmailMessage
 
 from fastapi import FastAPI, Request, Query, Response, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -26,8 +27,6 @@ import matplotlib
 from .fetch_data import get_data_from_mongodb
 from .duplicates import find_duplicates
 from .missings import find_missing_intervals
-
-# from pytz import timezone
 from .config import (
     MONGO_URI,
     DB_NAME,
@@ -35,7 +34,6 @@ from .config import (
     MONGO_MAX_POOL_SIZE,
     MONGO_MIN_POOL_SIZE,
     THREAD_POOL_WORKERS,
-    # MAX_RECORDS_LIMIT,
     EMAIL_ADDRESS,
     EMAIL_PASSWORD,
     SMTP_SERVER,
@@ -44,15 +42,23 @@ from .config import (
     SCHEDULE_TIME,
     CHART_DPI,
 )
+
 matplotlib.use("Agg")  # Use non-interactive backend for better performance
 
 # Global MongoDB client for connection pooling
 _mongo_client = None
 _thread_pool = ThreadPoolExecutor(max_workers=THREAD_POOL_WORKERS)
 
-# Simple cache for device status (cache for 5 minutes since we're fetching ALL devices) # noqa
+# Simple cache for device status (cache for 1 hour since we're fetching ALL devices) # noqa
 _device_status_cache = {"data": None, "timestamp": 0}
-CACHE_DURATION = 300  # 5 minutes in seconds (longer cache for all devices)
+CACHE_DURATION = 3600  # 1 hour in seconds (longer cache for all devices)
+
+# Cache for battery status per device (cache for 5 minutes)
+_battery_status_cache = {}
+BATTERY_CACHE_DURATION = 300  # 5 minutes in seconds
+
+# Cache for all battery status (cache for 5 minutes)
+_all_battery_status_cache = {"data": None, "timestamp": 0}
 
 
 def get_mongo_client():
@@ -87,13 +93,17 @@ async def startup_event():
     global _scheduler_thread
 
     if DEVICE_EMAIL_MAP:  # Only start if devices are configured
-        _scheduler_thread = threading.Thread(target=run_email_scheduler, daemon=True) # noqa
+        _scheduler_thread = threading.Thread(
+            target=run_email_scheduler, daemon=True
+        )  # noqa
         _scheduler_thread.start()
         logging.info("🚀 Email scheduler thread started successfully")
         logging.info(f"📧 Daily reports will be sent at {SCHEDULE_TIME}")
         logging.info(f"📋 Configured devices: {list(DEVICE_EMAIL_MAP.keys())}")
     else:
-        logging.warning("⚠️ No devices configured for email reports in DEVICE_EMAIL_MAP") # noqa
+        logging.warning(
+            "⚠️ No devices configured for email reports in DEVICE_EMAIL_MAP"
+        )  # noqa
 
 
 @app.on_event("shutdown")
@@ -137,12 +147,41 @@ async def all_device_status(request: Request):
 
 @app.get("/battery-status", response_class=HTMLResponse)
 async def battery_status_page(request: Request):
-    return templates.TemplateResponse("battery_status.html", {"request": request}) # noqa
+    return templates.TemplateResponse(
+        "battery_status.html", {"request": request}
+    )  # noqa
+
+
+@app.get("/api/battery-status")
+async def battery_status(device_id: str):
+    data = await get_battery_status(device_id)
+    # print("🔎 Battery API Response:", data)
+    if "error" in data:
+        raise HTTPException(status_code=500, detail=data["error"])
+    return JSONResponse(content=data)
+
+
+#  all devices battery status
+@app.get("/all-battery-status", response_class=HTMLResponse)
+async def all_device_battery_status(request: Request):
+    return templates.TemplateResponse(
+        "all_battery_status.html", {"request": request}
+    )  # noqa
+
+
+@app.get("/api/all_battery_status")
+async def api_all_battery_status():
+    data = await get_all_battery_status()
+    if isinstance(data, dict) and "error" in data:
+        return JSONResponse(status_code=400, content={"error": data["error"]})
+    return JSONResponse(content=data)
 
 
 @app.get("/email-scheduler", response_class=HTMLResponse)
 async def email_scheduler_page(request: Request):
-    return templates.TemplateResponse("email_scheduler.html", {"request": request}) # noqa
+    return templates.TemplateResponse(
+        "email_scheduler.html", {"request": request}
+    )  # noqa
 
 
 @app.get("/data-table", response_class=HTMLResponse)
@@ -152,7 +191,9 @@ async def data_table_page(request: Request):
 
 @app.get("/api/get-data")
 async def fetch_data(device_id: str, start_date: str, end_date: str):
-    data = get_data_from_mongodb(device_id, start_date, end_date)
+    client = get_mongo_client()
+    loop = asyncio.get_event_loop()
+    data = await loop.run_in_executor(_thread_pool, get_data_from_mongodb, device_id, start_date, end_date, client)
     if isinstance(data, dict) and "error" in data:
         return JSONResponse(status_code=400, content={"error": data["error"]})
     return JSONResponse(content=data)
@@ -169,23 +210,29 @@ def _generate_chart_sync(records, start_date, end_date):
         df = df.dropna(subset=["devicetime"])
         df["hour"] = df["devicetime"].dt.floor("h")
         df["csm"] = df["data"].apply(
-            lambda x: x.get("evt", {}).get("csm", 0) if isinstance(x, dict) else 0 # noqa
+            lambda x: (
+                x.get("evt", {}).get("csm", 0) if isinstance(x, dict) else 0
+            )  # noqa
         )
 
         hourly = df.groupby("hour")["csm"].sum().reset_index()
 
         # Use smaller figure size and lower DPI for faster rendering
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.bar(hourly["hour"].dt.strftime("%H:%M"), hourly["csm"], color="skyblue") # noqa
+        ax.bar(
+            hourly["hour"].dt.strftime("%H:%M"), hourly["csm"], color="skyblue"
+        )  # noqa
 
-        ax.set_title(f"Hourly Consumption from {start_date} to {end_date}", fontsize=11) # noqa
+        ax.set_title(
+            f"Hourly Consumption from {start_date} to {end_date}", fontsize=11
+        )  # noqa
         ax.set_xlabel("Hour")
         ax.set_ylabel("Total CSM")
         ax.tick_params(axis="x", rotation=45)
 
         buf = io.BytesIO()
         plt.tight_layout()
-        plt.savefig(buf, format="png", dpi=150, bbox_inches="tight")  # Lower DPI # noqa
+        plt.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight")  # Lower DPI # noqa
         buf.seek(0)
         plt.close(fig)  # Important: close figure to free memory
         return buf
@@ -214,13 +261,17 @@ async def render_chart(request: Request):
         )
 
         if buf is None:
-            return Response(content="Error generating chart", media_type="text/plain") # noqa
+            return Response(
+                content="Error generating chart", media_type="text/plain"
+            )  # noqa
 
         return StreamingResponse(buf, media_type="image/png")
 
     except Exception as e:
         logging.error(f"Chart API error: {e}")
-        return Response(content="Internal server error", media_type="text/plain") # noqa
+        return Response(
+            content="Internal server error", media_type="text/plain"
+        )  # noqa
 
 
 def safe_deviceid_to_str(deviceid):
@@ -246,7 +297,7 @@ def _find_duplicates_sync(device_id, start, end):
         end_dt = datetime.strptime(end, "%Y-%m-%d %H:%M:%S")
 
         device_uuid = uuid.UUID(device_id)
-        binary_uuid = Binary.from_uuid(device_uuid, UuidRepresentation.STANDARD) # noqa
+        binary_uuid = Binary.from_uuid(device_uuid, UuidRepresentation.STANDARD)  # noqa
 
         query = {
             "deviceid": binary_uuid,
@@ -255,7 +306,7 @@ def _find_duplicates_sync(device_id, start, end):
 
         projection = {"_id": 0, "deviceid": 1, "devicetime": 1}
         # Use limit to prevent excessive memory usage
-        cursor = list(collection.find(query, projection).limit(10000))
+        cursor = list(collection.find(query, projection).limit(5000))
 
         # Format results
         for doc in cursor:
@@ -302,7 +353,7 @@ async def missing_intervals(
         raise HTTPException(400, f"Invalid inputs: {e}")
 
     # 2) Query MongoDB on devicetime
-    client = MongoClient(MONGO_URI, uuidRepresentation="standard")
+    client = get_mongo_client()
     col = client[DB_NAME][COLLECTION_NAME]
     records = list(
         col.find(
@@ -310,10 +361,10 @@ async def missing_intervals(
                 "deviceid": bin_dev,
                 "devicetime": {"$gte": start_dt, "$lte": end_dt},
             }  # noqa
-        )
+        ).limit(5000)
     )
 
-    print(f"📦 Retrieved {len(records)} records (using devicetime)")
+    # print(f"📦 Retrieved {len(records)} records (using devicetime)")
 
     if not records:
         return {
@@ -426,7 +477,9 @@ def _get_all_device_status_sync():
 
             # Set inactive start/end times
             if result["status"] == "Inactive":
-                device_data["inactive_start"] = latest_time.strftime("%Y-%m-%d %H:%M") # noqa
+                device_data["inactive_start"] = latest_time.strftime(
+                    "%Y-%m-%d %H:%M"
+                )  # noqa
                 device_data["inactive_end"] = "Ongoing"
 
                 # Calculate how long it's been inactive
@@ -448,11 +501,13 @@ def _get_all_device_status_sync():
         _device_status_cache["data"] = formatted_results
         _device_status_cache["timestamp"] = current_time
 
-        active_count = len([d for d in formatted_results if d["status"] == "Active"]) # noqa
+        active_count = len(
+            [d for d in formatted_results if d["status"] == "Active"]
+        )  # noqa
         inactive_count = len(formatted_results) - active_count
 
         logging.info(
-            f"Successfully fetched ALL {len(formatted_results)} devices: {active_count} active, {inactive_count} inactive" # noqa
+            f"Successfully fetched ALL {len(formatted_results)} devices: {active_count} active, {inactive_count} inactive"  # noqa
         )
         return formatted_results
 
@@ -469,12 +524,16 @@ async def get_all_device_status():
 
         # Run in thread pool to avoid blocking
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_thread_pool, _get_all_device_status_sync) # noqa
+        result = await loop.run_in_executor(
+            _thread_pool, _get_all_device_status_sync
+        )  # noqa
 
         end_time = time.time()
         execution_time = end_time - start_time
 
-        logging.info(f"Device status API completed in {execution_time:.2f} seconds") # noqa
+        logging.info(
+            f"Device status API completed in {execution_time:.2f} seconds"
+        )  # noqa
 
         return JSONResponse(content=jsonable_encoder(result))
 
@@ -494,15 +553,7 @@ async def clear_device_status_cache():
 # ============================================================================
 # EMAIL SCHEDULING FUNCTIONS (Integrated from main.py)
 # ============================================================================
-
-import smtplib
-from email.message import EmailMessage
-import pandas as pd
-import matplotlib
-
 matplotlib.use("Agg")  # Use non-interactive backend
-import matplotlib.pyplot as plt
-import io
 
 
 def fetch_data_for_email(device_id):
@@ -518,7 +569,9 @@ def fetch_data_for_email(device_id):
 
         # Convert device_id to binary UUID for querying
         device_uuid = uuid.UUID(device_id)
-        device_id_binary = Binary.from_uuid(device_uuid, UuidRepresentation.STANDARD) # noqa
+        device_id_binary = Binary.from_uuid(
+            device_uuid, UuidRepresentation.STANDARD
+        )  # noqa
 
         # Query for the device data
         query = {
@@ -544,7 +597,9 @@ def get_battery_status_for_email(records):
         return {"status": "No data", "voltage": "N/A", "power_on": "N/A"}
 
     # Get the latest battery info
-    latest_record = max(records, key=lambda x: x.get("devicetime", datetime.min)) # noqa
+    latest_record = max(
+        records, key=lambda x: x.get("devicetime", datetime.min)
+    )  # noqa
     binfo = latest_record.get("data", {}).get("binfo", {})
 
     voltage = binfo.get("bvt", 0)
@@ -583,7 +638,9 @@ def generate_chart_for_email(records, device_id):
         df = df.dropna(subset=["devicetime"])
         df["hour"] = df["devicetime"].dt.floor("h")
         df["csm"] = df["data"].apply(
-            lambda x: x.get("evt", {}).get("csm", 0) if isinstance(x, dict) else 0 # noqa
+            lambda x: (
+                x.get("evt", {}).get("csm", 0) if isinstance(x, dict) else 0
+            )  # noqa
         )
 
         hourly = df.groupby("hour")["csm"].sum().reset_index()
@@ -592,7 +649,9 @@ def generate_chart_for_email(records, device_id):
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
 
         # Consumption chart
-        ax1.bar(hourly["hour"].dt.strftime("%H:%M"), hourly["csm"], color="skyblue") # noqa
+        ax1.bar(
+            hourly["hour"].dt.strftime("%H:%M"), hourly["csm"], color="skyblue"
+        )  # noqa
         ax1.set_title(f"Hourly Consumption - {device_id}", fontsize=11)
         ax1.set_xlabel("Hour")
         ax1.set_ylabel("Total CSM")
@@ -601,7 +660,9 @@ def generate_chart_for_email(records, device_id):
         # Battery status chart
         battery_info = get_battery_status_for_email(records)
         df["bvt"] = df["data"].apply(
-            lambda x: x.get("binfo", {}).get("bvt", 0) if isinstance(x, dict) else 0 # noqa
+            lambda x: (
+                x.get("binfo", {}).get("bvt", 0) if isinstance(x, dict) else 0
+            )  # noqa
         )
 
         # Plot battery voltage over time (hourly average)
@@ -614,7 +675,9 @@ def generate_chart_for_email(records, device_id):
                 marker="o",
                 linewidth=2,
             )
-            ax2.set_title(f"Battery Voltage Over Time - {device_id}", fontsize=11) # noqa
+            ax2.set_title(
+                f"Battery Voltage Over Time - {device_id}", fontsize=11
+            )  # noqa
             ax2.set_xlabel("Hour")
             ax2.set_ylabel("Voltage (V)")
             ax2.tick_params(axis="x", rotation=45)
@@ -624,11 +687,13 @@ def generate_chart_for_email(records, device_id):
             ax2.text(
                 0.02,
                 0.98,
-                f"Current Status: {battery_info['status']} ({battery_info['voltage']})", # noqa
+                f"Current Status: {battery_info['status']} ({battery_info['voltage']})",  # noqa
                 transform=ax2.transAxes,
                 verticalalignment="top",
                 bbox=dict(
-                    boxstyle="round", facecolor=battery_info["status_color"], alpha=0.3 # noqa
+                    boxstyle="round",
+                    facecolor=battery_info["status_color"],
+                    alpha=0.3,  # noqa
                 ),
             )
 
@@ -683,14 +748,16 @@ def generate_csv_for_email(records):
         return None
 
 
-def send_email_report(to_email, device_id, chart_buf, csv_buf=None, battery_info=None): # noqa
+def send_email_report(
+    to_email, device_id, chart_buf, csv_buf=None, battery_info=None
+):  # noqa
     """Send email report with chart and data"""
     try:
         logging.info(f"📧 Preparing email for {device_id} to {to_email}")
 
         msg = EmailMessage()
         msg["Subject"] = (
-            f"Daily Report for Device {device_id} - {datetime.now().strftime('%Y-%m-%d')}" # noqa
+            f"Daily Report for Device {device_id} - {datetime.now().strftime('%Y-%m-%d')}"  # noqa
         )
         msg["From"] = EMAIL_ADDRESS
         msg["To"] = to_email
@@ -734,14 +801,17 @@ def send_email_report(to_email, device_id, chart_buf, csv_buf=None, battery_info
             try:
                 chart_data = chart_buf.read()
                 chart_filename = (
-                    f"chart_{device_id}_{datetime.now().strftime('%Y%m%d')}.png" # noqa
+                    f"chart_{device_id}_{datetime.now().strftime('%Y%m%d')}.png"  # noqa
                 )
                 msg.add_attachment(
-                    chart_data, maintype="image", subtype="png", filename=chart_filename # noqa
+                    chart_data,
+                    maintype="image",
+                    subtype="png",
+                    filename=chart_filename,  # noqa
                 )
                 chart_buf.seek(0)
                 logging.info(
-                    f"📊 Chart attached for {device_id} ({len(chart_data)} bytes)" # noqa
+                    f"📊 Chart attached for {device_id} ({len(chart_data)} bytes)"  # noqa
                 )
             except Exception as e:
                 logging.error(f"❌ Failed to attach chart for {device_id}: {e}")
@@ -760,7 +830,9 @@ def send_email_report(to_email, device_id, chart_buf, csv_buf=None, battery_info
                     filename=csv_filename,
                 )
                 csv_buf.seek(0)
-                logging.info(f"📄 CSV attached for {device_id} ({len(csv_data)} chars)") # noqa
+                logging.info(
+                    f"📄 CSV attached for {device_id} ({len(csv_data)} chars)"
+                )  # noqa
             except Exception as e:
                 logging.error(f"❌ Failed to attach CSV for {device_id}: {e}")
 
@@ -774,7 +846,9 @@ def send_email_report(to_email, device_id, chart_buf, csv_buf=None, battery_info
             smtp.send_message(msg)
             logging.info(f"📨 Email message sent for {device_id}")
 
-        logging.info(f"✅ Email sent successfully to {to_email} for device {device_id}") # noqa
+        logging.info(
+            f"✅ Email sent successfully to {to_email} for device {device_id}"
+        )  # noqa
         return True
 
     except Exception as e:
@@ -815,9 +889,11 @@ def process_and_send_emails():
             battery_info = get_battery_status_for_email(records)
 
             # Send email
-            if send_email_report(email, device_id, chart, csv_data, battery_info): # noqa
+            if send_email_report(
+                email, device_id, chart, csv_data, battery_info
+            ):  # noqa
                 logging.info(
-                    f"✅ Report sent for {device_id} - Battery: {battery_info['status']} ({battery_info['voltage']})" # noqa
+                    f"✅ Report sent for {device_id} - Battery: {battery_info['status']} ({battery_info['voltage']})"  # noqa
                 )
             else:
                 logging.error(f"❌ Failed to send report for {device_id}")
@@ -832,7 +908,7 @@ def run_email_scheduler():
     schedule.every().day.at(SCHEDULE_TIME).do(process_and_send_emails)
 
     logging.info(
-        f"📅 Email scheduler started - reports will be sent daily at {SCHEDULE_TIME}" # noqa
+        f"📅 Email scheduler started - reports will be sent daily at {SCHEDULE_TIME}"  # noqa
     )
     logging.info(f"📋 Configured devices: {list(DEVICE_EMAIL_MAP.keys())}")
 
@@ -888,7 +964,8 @@ async def send_test_email(device_id: str = None):
             # Send to specific device
             if device_id not in DEVICE_EMAIL_MAP:
                 raise HTTPException(
-                    status_code=404, detail="Device not found in email configuration" # noqa
+                    status_code=404,
+                    detail="Device not found in email configuration",  # noqa
                 )
 
             email = DEVICE_EMAIL_MAP[device_id]
@@ -907,7 +984,9 @@ async def send_test_email(device_id: str = None):
                 )
 
             loop = asyncio.get_event_loop()
-            success = await loop.run_in_executor(_thread_pool, send_single_test_email) # noqa
+            success = await loop.run_in_executor(
+                _thread_pool, send_single_test_email
+            )  # noqa
 
             if success:
                 return JSONResponse(
@@ -917,7 +996,9 @@ async def send_test_email(device_id: str = None):
                     }
                 )
             else:
-                raise HTTPException(status_code=500, detail="Failed to send test email") # noqa
+                raise HTTPException(
+                    status_code=500, detail="Failed to send test email"
+                )  # noqa
 
     except HTTPException:
         raise
@@ -979,7 +1060,9 @@ def _check_single_device_status_sync(device_id: str):
 
         # Determine if inactive for more than 1 hour (more reasonable threshold) # noqa
         if now - last_seen > timedelta(hours=1):
-            logging.info(f"[INACTIVE] Device {device_id} last seen at {last_seen}") # noqa
+            logging.info(
+                f"[INACTIVE] Device {device_id} last seen at {last_seen}"
+            )  # noqa
             return {
                 "device_id": device_id,
                 "status": "inactive",
@@ -987,7 +1070,9 @@ def _check_single_device_status_sync(device_id: str):
                 "inactive_since": last_seen,
             }
         else:
-            logging.info(f"[ACTIVE] Device {device_id} last seen at {last_seen}") # noqa
+            logging.info(
+                f"[ACTIVE] Device {device_id} last seen at {last_seen}"
+            )  # noqa
             return {
                 "device_id": device_id,
                 "status": "active",
@@ -1010,7 +1095,9 @@ async def check_device_status(device_id: str):
         )
 
         if result is None:
-            raise HTTPException(status_code=404, detail="No data found for device") # noqa
+            raise HTTPException(
+                status_code=404, detail="No data found for device"
+            )  # noqa
 
         return result
 
@@ -1022,78 +1109,271 @@ async def check_device_status(device_id: str):
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
-def _get_battery_status_sync(device_id):
-    """Synchronous battery status check for thread pool execution"""
+async def get_battery_status(device_id: str):
+    global _battery_status_cache
+
+    # Check cache first
+    current_time = time.time()
+    if device_id in _battery_status_cache:
+        cached_data = _battery_status_cache[device_id]
+        if current_time - cached_data["timestamp"] < BATTERY_CACHE_DURATION:
+            logging.info(f"Returning cached battery status for {device_id}")
+            return cached_data["data"]
+
+    try:
+        # Mongo connection
+        client = get_mongo_client()
+        db = client[DB_NAME]
+        collection = db[COLLECTION_NAME]
+
+        # Convert device_id
+        device_uuid = uuid.UUID(device_id)
+        device_binary = Binary.from_uuid(device_uuid, UuidRepresentation.STANDARD) # noqa
+
+        # Time window: last 24 hours
+        now = datetime.now()
+        since = now - timedelta(days=1)
+        inactive_threshold = timedelta(hours=24)
+
+        # -----------------------------
+        # Step 1: Get last 24h data
+        # -----------------------------
+        query = {
+            "deviceid": device_binary,
+            "datatime": {"$gte": since, "$lte": now}
+        }
+
+        projection = {
+            "_id": 0,
+            "datatime": 1
+        }
+
+        docs = list(collection.find(query, projection).sort("datatime", 1).limit(1000)) # noqa
+        times = [doc["datatime"] for doc in docs if "datatime" in doc]
+
+        inactive_intervals = []
+
+        if times:
+            last_time = times[-1]
+            if now - last_time > inactive_threshold:
+                device_status = "Inactive"
+                inactive_intervals.append({
+                    "inactive_start": last_time.isoformat(),
+                    "inactive_end": now.isoformat()
+                })
+            else:
+                device_status = "Active"
+            last_data_time = last_time.isoformat()
+        else:
+            device_status = "Inactive"
+            last_data_time = None
+            inactive_intervals.append({
+                "inactive_start": since.isoformat(),
+                "inactive_end": now.isoformat()
+            })
+
+        # -----------------------------
+        # Step 2: Get latest battery info
+        # -----------------------------
+        latest_battery_doc = collection.find_one(
+            {"deviceid": device_binary},
+            {
+                "_id": 0,
+                "datatime": 1,
+                "data.binfo.bpon": 1,
+                "data.binfo.bvt": 1
+            },
+            sort=[("datatime", -1)]
+        )
+
+        if latest_battery_doc:
+            battery_mode = latest_battery_doc.get("data", {}).get("binfo", {}).get("bpon") # noqa
+            battery_voltage = latest_battery_doc.get("data", {}).get("binfo", {}).get("bvt") # noqa
+            battery_timestamp = latest_battery_doc.get("datatime")
+
+            battery_status = "Battery" if battery_mode else "Power"
+        else:
+            battery_status = "Unknown"
+            battery_voltage = None
+            battery_timestamp = None
+
+        # -----------------------------
+        # Final response
+        # -----------------------------
+        result = {
+            "device_id": device_id,
+            "device_status": device_status,
+            "battery_status": battery_status,
+            "battery_voltage": battery_voltage,
+            "battery_timestamp": battery_timestamp.isoformat() if battery_timestamp else None, # noqa
+            "last_data_send_time": last_data_time,
+
+            "inactive_intervals": inactive_intervals,
+
+        }
+
+        # Cache the result
+        _battery_status_cache[device_id] = {
+            "data": result,
+            "timestamp": current_time
+        }
+
+        return result
+
+    except Exception as e:
+        error_result = {"error": str(e)}
+        # Cache error for short time to avoid repeated failures
+        _battery_status_cache[device_id] = {
+            "data": error_result,
+            "timestamp": current_time
+        }
+        return error_result
+
+
+# Find All devices Battery status from MongoDB
+# @app.get("/all_devices_battery_status")
+async def get_all_battery_status():
+    global _all_battery_status_cache
+
+    # Check cache first
+    current_time = time.time()
+    if (
+        _all_battery_status_cache["data"] is not None
+        and current_time - _all_battery_status_cache["timestamp"] < BATTERY_CACHE_DURATION
+    ):
+        logging.info("Returning cached all battery status data")
+        return _all_battery_status_cache["data"]
+
     try:
         client = get_mongo_client()
         db = client[DB_NAME]
         collection = db[COLLECTION_NAME]
 
-        device_id_uuid = uuid.UUID(device_id)
-        device_id_binary = Binary.from_uuid(device_id_uuid, UuidRepresentation.STANDARD) # noqa
+        now = datetime.now()
+        since = now - timedelta(days=1)
+        inactive_threshold = timedelta(hours=2)
 
-        # Get the most recent record with battery info
-        latest = collection.find_one(
-            {"deviceid": device_id_binary},
-            {"data.binfo.bvt": 1, "data.binfo.bpon": 1, "devicetime": 1},
-            sort=[("devicetime", -1)],
-        )
+        device_ids = collection.distinct("deviceid")
+        all_devices = []
+        # active_count = 0
+        # inactive_count = 0
 
-        if not latest:
-            return None
+        for device_uuid in device_ids:
+            try:
+                device_id_str = str(device_uuid)
 
-        binfo = latest.get("data", {}).get("binfo", {})
-        voltage = binfo.get("bvt", 0)
-        power_on = binfo.get("bpon", 0)
-        last_update = latest.get("devicetime")
+                # 1. Fetch device data (last 24h)
+                query = {
+                    "deviceid": device_uuid,
+                    "datatime": {"$gte": since, "$lte": now}
+                }
 
-        # Determine battery status based on voltage
-        if voltage >= 3.7:
-            status = "Good"
-            status_color = "#28a745"  # Green
-        elif voltage >= 3.4:
-            status = "Low"
-            status_color = "#ffc107"  # Yellow/Orange
-        elif voltage > 0:
-            status = "Critical"
-            status_color = "#dc3545"  # Red
-        else:
-            status = "Unknown"
-            status_color = "#6c757d"  # Gray
+                projection = {
+                    "_id": 0,
+                    "datatime": 1,
+                    "data.binfo.bpon": 1,
+                    "data.binfo.bvt": 1
+                }
 
-        return {
-            "device_id": device_id,
-            "battery_status": status,
-            "voltage": f"{voltage:.2f}V" if voltage > 0 else "N/A",
-            "power_on": bool(power_on),
-            "status_color": status_color,
-            "last_update": last_update.isoformat() if last_update else None,
+                docs = list(collection.find(query, projection).sort("datatime", 1).limit(1000)) # noqa
+                times = [doc["datatime"] for doc in docs if "datatime" in doc] # noqa
+
+                # 2. Check device active/inactive
+                inactive_intervals = []
+                for i in range(1, len(times)):
+                    prev = times[i - 1]
+                    curr = times[i]
+                    if curr - prev > inactive_threshold:
+                        inactive_intervals.append({
+                            "inactive_start": prev.isoformat(),
+                            "inactive_end": curr.isoformat()
+                        })
+
+                if times:
+                    last_time = times[-1]
+                    if now - last_time > inactive_threshold:
+                        inactive_intervals.append({
+                            "inactive_start": last_time.isoformat(),
+                            "inactive_end": now.isoformat()
+                        })
+                    last_data_send_time = last_time.isoformat()
+                else:
+                    last_data_send_time = None
+
+                latest_battery_doc = collection.find_one(
+                    {"deviceid": device_uuid},
+                    {
+                        "_id": 0,
+                        "datatime": 1,
+                        "data.binfo.bpon": 1,
+                        "data.binfo.bvt": 1
+                    },
+                    sort=[("datatime", -1)]
+                )
+
+                battery_mode = None
+                battery_voltage = None
+                if latest_battery_doc:
+                    battery_mode = latest_battery_doc.get("data", {}).get("binfo", {}).get("bpon") # noqa
+                    battery_voltage = latest_battery_doc.get("data", {}).get("binfo", {}).get("bvt") # noqa
+
+                battery_status = "Battery" if battery_mode else "Power" if battery_mode is not None else "None" # noqa
+
+                # 4. Battery mode intervals (when bpon == True)
+                battery_intervals = []
+                current_interval = None
+                for doc in docs:
+                    datatime = doc.get("datatime")
+                    bpon = doc.get("data", {}).get("binfo", {}).get("bpon")
+
+                    if bpon is True:
+                        if not current_interval:
+                            current_interval = {"start": datatime}
+                    else:
+                        if current_interval:
+                            current_interval["end"] = datatime
+                            battery_intervals.append({
+                                "battery_start": current_interval["start"].isoformat(), # noqa
+                                "battery_end": current_interval["end"].isoformat() # noqa
+                            })
+                            current_interval = None
+
+                if current_interval:
+                    current_interval["end"] = now
+                    battery_intervals.append({
+                        "battery_start": current_interval["start"].isoformat(),
+                        "battery_end": current_interval["end"].isoformat()
+                    })
+
+                all_devices.append({
+                    "device_id": device_id_str,
+                    "last_data_send_time": last_data_send_time,
+                    "battery_status": battery_status,
+                    "battery_voltage": battery_voltage,
+                    "battery_intervals": battery_intervals
+                })
+
+            except Exception as err:
+                all_devices.append({
+                    "device_id": str(device_uuid),
+                    "status": "Error",
+                    "error": str(err)
+                })
+
+        result = {
+            "total_devices": len(all_devices),
+            "devices": all_devices
         }
 
+        # Cache the result
+        _all_battery_status_cache["data"] = result
+        _all_battery_status_cache["timestamp"] = current_time
+
+        return result
+
     except Exception as e:
-        logging.error(f"Battery status sync error: {e}")
-        return None
-
-
-@app.get("/api/battery-status")
-async def get_battery_status(device_id: str = Query(...)):
-    """Get battery status for a specific device"""
-    try:
-        # Run in thread pool to avoid blocking
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            _thread_pool, _get_battery_status_sync, device_id
-        )
-
-        if result is None:
-            raise HTTPException(status_code=404, detail="No data found for device") # noqa
-
-        return JSONResponse(content=result)
-
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid device ID format")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logging.error(f"❌ Error getting battery status for {device_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        error_result = {"error": str(e)}
+        # Cache error for short time
+        _all_battery_status_cache["data"] = error_result
+        _all_battery_status_cache["timestamp"] = current_time
+        return error_result
